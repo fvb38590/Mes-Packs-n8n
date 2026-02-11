@@ -1,0 +1,227 @@
+{
+  "name": "Pack_Immo_Pro - Lead Qualification Workflow",
+  "nodes": [
+    {
+      "name": "Webhook - Receive Lead Data",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [100, 300],
+      "webhookId": "lead-webhook-immobilier",
+      "parameters": {
+        "path": "lead-intake",
+        "httpMethod": "POST"
+      },
+      "credentials": {}
+    },
+    {
+      "name": "Parse Lead Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [350, 300],
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "nom",
+              "value": "={{$json.firstName}} {{$json.lastName}}"
+            },
+            {
+              "name": "email",
+              "value": "={{$json.email}}"
+            },
+            {
+              "name": "telephone",
+              "value": "={{$json.phone}}"
+            },
+            {
+              "name": "typeDeBien",
+              "value": "={{$json.propertyType}}"
+            }
+          ],
+          "number": [
+            {
+              "name": "budget",
+              "value": "={{$json.budgetMax || $json.budget}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "AI Agent - Qualifier Lead",
+      "type": "n8n-nodes-base.openAI",
+      "typeVersion": 1,
+      "position": [600, 300],
+      "parameters": {
+        "model": "gpt-4",
+        "temperature": 0.5,
+        "prompt": "Analyse ce lead immobilier et détermine s'il est 'Chaud' ou 'Froid'.\n\nCritères:\n- CHAUD: Budget >= 200000€ ET (type de bien = maison ou immeuble)\n- CHAUD: Budget entre 100000-200000€ ET type de bien = appartement avec équipements premium\n- FROID: Budget < 100000€\n- FROID: Type de bien = terrain sans budget élevé\n\nLead:\n- Nom: {{$json.nom}}\n- Email: {{$json.email}}\n- Téléphone: {{$json.telephone}}\n- Type de bien: {{$json.typeDeBien}}\n- Budget: {{$json.budget}}€\n\nRéponds UNIQUEMENT avec:\n{\"temperature\": \"Chaud\" ou \"Froid\", \"raison\": \"explication courte\", \"priorite\": 1-5}"
+      },
+      "credentials": {
+        "openAiApi": "={{$env.OPENAI_API_KEY}}"
+      }
+    },
+    {
+      "name": "Filter Hot Leads",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 1,
+      "position": [850, 300],
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{JSON.parse($json.response).temperature}}",
+              "operation": "equals",
+              "value2": "Chaud"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Google Sheets - Save Qualified Lead",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 2,
+      "position": [1100, 300],
+      "parameters": {
+        "mode": "append",
+        "spreadsheetId": "{{$env.GOOGLE_SHEETS_ID}}",
+        "sheetName": "Leads Qualifiés",
+        "columns": {
+          "nom": "={{$json.nom}}",
+          "email": "={{$json.email}}",
+          "telephone": "={{$json.telephone}}",
+          "typeDeBien": "={{$json.typeDeBien}}",
+          "budget": "={{$json.budget}}",
+          "temperature": "={{JSON.parse($json.response).temperature}}",
+          "raison": "={{JSON.parse($json.response).raison}}",
+          "priorite": "={{JSON.parse($json.response).priorite}}",
+          "dateAjout": "={{new Date().toISOString()}}"
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": "={{$env.GOOGLE_SHEETS_API}}"
+      }
+    },
+    {
+      "name": "Send Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1350, 300],
+      "parameters": {
+        "statusCode": 200,
+        "responseBody": "={\"status\": \"Lead traité avec succès\", \"leadId\": \"{{$json.id}}\", \"temperature\": \"{{JSON.parse($json.response).temperature}}\"}"
+      }
+    },
+    {
+      "name": "Save Cold Lead (Archive)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 2,
+      "position": [1100, 500],
+      "parameters": {
+        "mode": "append",
+        "spreadsheetId": "{{$env.GOOGLE_SHEETS_ID}}",
+        "sheetName": "Leads Froids",
+        "columns": {
+          "nom": "={{$json.nom}}",
+          "email": "={{$json.email}}",
+          "telephone": "={{$json.telephone}}",
+          "typeDeBien": "={{$json.typeDeBien}}",
+          "budget": "={{$json.budget}}",
+          "raison": "={{JSON.parse($json.response).raison}}",
+          "dateAjout": "={{new Date().toISOString()}}"
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": "={{$env.GOOGLE_SHEETS_API}}"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Receive Lead Data": {
+      "main": [
+        [
+          {
+            "node": "Parse Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Lead Data": {
+      "main": [
+        [
+          {
+            "node": "AI Agent - Qualifier Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent - Qualifier Lead": {
+      "main": [
+        [
+          {
+            "node": "Filter Hot Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Hot Leads": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Save Qualified Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Cold Lead (Archive)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Save Qualified Lead": {
+      "main": [
+        [
+          {
+            "node": "Send Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Cold Lead (Archive)": {
+      "main": [
+        [
+          {
+            "node": "Send Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "timezone": "Europe/Paris"
+  },
+  "id": "workflow-lead-qualification-immobilier",
+  "version": 1,
+  "createdAt": "2026-02-11",
+  "updatedAt": "2026-02-11",
+  "description": "Workflow complet pour recevoir les leads immobiliers, les analyser avec une IA pour déterminer s'ils sont chauds ou froids, et les enregistrer dans Google Sheets"
+}
