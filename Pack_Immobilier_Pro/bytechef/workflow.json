@@ -1,0 +1,108 @@
+{
+  "version": "1.0",
+  "name": "Pack_Immobilier_Pro - Lead Qualification by AI (ByteChef)",
+  "description": "Webhook → OpenAI Scoring Lead → Google Sheets tri par priorité",
+  "triggers": [
+    {
+      "name": "webhook_trigger",
+      "type": "webhook",
+      "title": "Webhook - Receive Lead",
+      "properties": {
+        "url": "/immobilier-pro/lead",
+        "method": "POST",
+        "headers": {},
+        "queryParameters": {}
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "name": "parse_lead",
+      "action": "utility.transform",
+      "title": "Parse Lead Data",
+      "input": {
+        "value": "{{webhook_trigger.body}}"
+      },
+      "output": {
+        "clientName": "{{input.clientName}}",
+        "propertyType": "{{input.propertyType}}",
+        "budget": "{{input.budget}}",
+        "isUrgent": "{{input.isUrgent}}"
+      }
+    },
+    {
+      "name": "openai_scoring",
+      "action": "openai.createChatCompletion",
+      "title": "OpenAI - Scoring Lead",
+      "input": {
+        "model": "gpt-4",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Score immobilier leads de 1 à 10 basé sur budget, type de bien, et urgence. Format JSON uniquement."
+          },
+          {
+            "role": "user",
+            "content": "Score immobilier lead client de 1 à 10.\n\nCritères :\n- Budget (0-3 pts) : <100k=0, 100-200k=1, 200-500k=2, >500k=3\n- Type de bien (0-3 pts) : terrain=0, commerce=1, bureau=2, appartement=2, maison=3, immeuble=3\n- Urgence (0-4 pts) : NON=0, OUI=4\n\nClient :\n- Nom: {{parse_lead.clientName}}\n- Type: {{parse_lead.propertyType}}\n- Budget: {{parse_lead.budget}}€\n- Urgent: {{parse_lead.isUrgent}}\n\nRéponds strictement JSON :\n{\"scoreIA\": 0-10, \"raison\": \"...\", \"priorite\": \"haute\"|\"moyenne\"|\"basse\"}"
+          }
+        ],
+        "temperature": 0.3,
+        "apiKey": "{{env.OPENAI_API_KEY}}"
+      },
+      "output": "{{JSON.parse(openai_scoring.content[0].text)}}"
+    },
+    {
+      "name": "sheets_archive",
+      "action": "googleSheets.appendValues",
+      "title": "Google Sheets - Archive by Priority",
+      "input": {
+        "spreadsheetId": "{{env.GOOGLE_SHEETS_ID}}",
+        "range": "Leads Scores!A:H",
+        "values": [
+          [
+            "{{parse_lead.clientName}}",
+            "{{parse_lead.propertyType}}",
+            "{{parse_lead.budget}}",
+            "{{parse_lead.isUrgent}}",
+            "{{openai_scoring.scoreIA}}",
+            "{{openai_scoring.raison}}",
+            "{{openai_scoring.priorite}}",
+            "{{now()}}"
+          ]
+        ],
+        "credentials": "{{env.GOOGLE_SHEETS_API}}"
+      }
+    },
+    {
+      "name": "send_response",
+      "action": "utility.respondToWebhook",
+      "title": "Response",
+      "input": {
+        "statusCode": 200,
+        "body": {
+          "success": true,
+          "scoreIA": "{{openai_scoring.scoreIA}}",
+          "priorite": "{{openai_scoring.priorite}}"
+        }
+      }
+    }
+  ],
+  "flow": [
+    {
+      "from": "webhook_trigger",
+      "to": "parse_lead"
+    },
+    {
+      "from": "parse_lead",
+      "to": "openai_scoring"
+    },
+    {
+      "from": "openai_scoring",
+      "to": "sheets_archive"
+    },
+    {
+      "from": "sheets_archive",
+      "to": "send_response"
+    }
+  ]
+}

@@ -1,0 +1,154 @@
+{
+  "name": "Pack_Immobilier_Pro - Lead Qualification by AI",
+  "nodes": [
+    {
+      "name": "Webhook - Receive Lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [100, 300],
+      "parameters": {
+        "path": "immobilier-pro/lead",
+        "httpMethod": "POST",
+        "responseMode": "onReceived"
+      },
+      "credentials": {}
+    },
+    {
+      "name": "Parse Lead Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [350, 300],
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "clientName",
+              "value": "={{$json.clientName || ''}}"
+            },
+            {
+              "name": "propertyType",
+              "value": "={{$json.propertyType || 'autre'}}"
+            }
+          ],
+          "number": [
+            {
+              "name": "budget",
+              "value": "={{Number($json.budget || 0)}}"
+            }
+          ],
+          "boolean": [
+            {
+              "name": "isUrgent",
+              "value": "={{$json.isUrgent || false}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "OpenAI - Scoring Lead",
+      "type": "n8n-nodes-base.openAI",
+      "typeVersion": 1,
+      "position": [650, 300],
+      "parameters": {
+        "model": "gpt-4",
+        "temperature": 0.3,
+        "prompt": "Score immobilier lead client de 1 à 10.\n\nCritères :\n- Budget (0-3 pts) : <100k=0, 100-200k=1, 200-500k=2, >500k=3\n- Type de bien (0-3 pts) : terrain=0, commerce=1, bureau=2, appartement=2, maison=3, immeuble=3\n- Urgence (0-4 pts) : NON=0, OUI=4\n\nClient :\n- Nom: {{$json.clientName}}\n- Type: {{$json.propertyType}}\n- Budget: {{$json.budget}}€\n- Urgent: {{$json.isUrgent}}\n\nRéponds strictement JSON :\n{\"scoreIA\": 0-10, \"raison\": \"...\", \"priorite\": \"haute\"|\"moyenne\"|\"basse\"}"
+      },
+      "credentials": {
+        "openAiApi": "={{$env.OPENAI_API_KEY}}"
+      }
+    },
+    {
+      "name": "Google Sheets - Archive by Priority",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 2,
+      "position": [950, 300],
+      "parameters": {
+        "mode": "append",
+        "spreadsheetId": "{{$env.GOOGLE_SHEETS_ID}}",
+        "sheetName": "Leads Scores",
+        "columns": {
+          "clientName": "={{$json.clientName}}",
+          "propertyType": "={{$json.propertyType}}",
+          "budget": "={{$json.budget}}",
+          "isUrgent": "={{$json.isUrgent}}",
+          "scoreIA": "={{JSON.parse($json.response).scoreIA}}",
+          "raison": "={{JSON.parse($json.response).raison}}",
+          "priorite": "={{JSON.parse($json.response).priorite}}",
+          "dateAdded": "={{new Date().toISOString()}}"
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": "={{$env.GOOGLE_SHEETS_API}}"
+      }
+    },
+    {
+      "name": "Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1200, 300],
+      "parameters": {
+        "statusCode": 200,
+        "responseBody": "={\"success\": true, \"scoreIA\": {{JSON.parse($json.response).scoreIA}}, \"priorite\": \"{{JSON.parse($json.response).priorite}}\"}"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Receive Lead": {
+      "main": [
+        [
+          {
+            "node": "Parse Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Lead Data": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Scoring Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Scoring Lead": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Archive by Priority",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Archive by Priority": {
+      "main": [
+        [
+          {
+            "node": "Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "timezone": "Europe/Paris"
+  },
+  "id": "pack-immobilier-pro-scoring",
+  "version": 1,
+  "createdAt": "2026-02-11",
+  "description": "Webhook → OpenAI Scoring Lead → Google Sheets tri par priorité"
+}
