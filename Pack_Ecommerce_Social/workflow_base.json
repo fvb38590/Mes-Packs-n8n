@@ -1,0 +1,96 @@
+{
+  "name": "Pack_Ecommerce_Social - Review to Social Post",
+  "nodes": [
+    {
+      "name": "Webhook - Receive Review",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [150, 250],
+      "parameters": {
+        "path": "review-intake",
+        "httpMethod": "POST",
+        "responseMode": "onReceived"
+      }
+    },
+    {
+      "name": "Parse Review Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [400, 250],
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            { "name": "name", "value": "={{($json.firstName || '') + ' ' + ($json.lastName || '')}}" },
+            { "name": "product", "value": "={{$json.product || ''}}" },
+            { "name": "comment", "value": "={{$json.comment || ''}}" }
+          ],
+          "number": [
+            { "name": "rating", "value": "={{Number($json.rating || 0)}}" }
+          ],
+          "boolean": []
+        }
+      }
+    },
+    {
+      "name": "OpenAI - Copywriter",
+      "type": "n8n-nodes-base.openAI",
+      "typeVersion": 1,
+      "position": [700, 250],
+      "parameters": {
+        "model": "gpt-4",
+        "temperature": 0.7,
+        "prompt": "You are a social media copywriter. Transform the customer review into an engaging social post suitable for LinkedIn, Instagram and Twitter. Keep it concise, positive, and adapt tone for each platform.\n\nInput:\nName: {{$json.name}}\nProduct: {{$json.product}}\nRating: {{$json.rating}}\nComment: {{$json.comment}}\n\nRespond with strict JSON:\n{\"postText\": \"...\", \"suggestedPlatforms\": [\"linkedin\", \"instagram\", \"twitter\"]}"
+      },
+      "credentials": {
+        "openAiApi": "={{$env.OPENAI_API_KEY}}"
+      }
+    },
+    {
+      "name": "Google Sheets - Save Pending Post",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 2,
+      "position": [1000, 250],
+      "parameters": {
+        "mode": "append",
+        "spreadsheetId": "{{$env.GOOGLE_SHEETS_ID}}",
+        "sheetName": "Pending Posts",
+        "columns": {
+          "name": "={{$json.name}}",
+          "product": "={{$json.product}}",
+          "rating": "={{$json.rating}}",
+          "originalComment": "={{$json.comment}}",
+          "postText": "={{JSON.parse($json.response).postText}}",
+          "suggestedPlatforms": "={{JSON.parse($json.response).suggestedPlatforms.join(', ')}}",
+          "dateAdded": "={{new Date().toISOString()}}"
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": "={{$env.GOOGLE_SHEETS_API}}"
+      }
+    },
+    {
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1250, 250],
+      "parameters": {
+        "statusCode": 200,
+        "responseBody": "={\"status\": \"received\", \"postText\": \"{{JSON.parse($json.response).postText}}\"}"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Receive Review": { "main": [[{"node": "Parse Review Data","type": "main","index": 0}]] },
+    "Parse Review Data": { "main": [[{"node": "OpenAI - Copywriter","type": "main","index": 0}]] },
+    "OpenAI - Copywriter": { "main": [[{"node": "Google Sheets - Save Pending Post","type": "main","index": 0}]] },
+    "Google Sheets - Save Pending Post": { "main": [[{"node": "Respond","type": "main","index": 0}]] }
+  },
+  "active": true,
+  "settings": { "executionOrder": "v1", "saveExecutionProgress": true, "timezone": "Europe/Paris" },
+  "id": "workflow-ecommerce-social-review",
+  "version": 1,
+  "createdAt": "2026-02-11",
+  "updatedAt": "2026-02-11",
+  "description": "Receive customer reviews, generate social posts with OpenAI, store pending posts in Google Sheets"
+}
