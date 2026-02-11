@@ -1,0 +1,152 @@
+{
+  "name": "Pack_Ecommerce_Pro - Reviews to Social Posts",
+  "nodes": [
+    {
+      "name": "Webhook - Receive Review",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [100, 300],
+      "parameters": {
+        "path": "ecommerce-pro/review",
+        "httpMethod": "POST",
+        "responseMode": "onReceived"
+      },
+      "credentials": {}
+    },
+    {
+      "name": "Parse Review",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [350, 300],
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "customerName",
+              "value": "={{$json.customerName || ''}}"
+            },
+            {
+              "name": "reviewText",
+              "value": "={{$json.reviewText || ''}}"
+            },
+            {
+              "name": "platformTarget",
+              "value": "={{$json.platformTarget || 'linkedin'}}"
+            }
+          ],
+          "number": [
+            {
+              "name": "rating",
+              "value": "={{Number($json.rating || 0)}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "OpenAI - Generate Social Post",
+      "type": "n8n-nodes-base.openAI",
+      "typeVersion": 1,
+      "position": [600, 300],
+      "parameters": {
+        "model": "gpt-4",
+        "temperature": 0.7,
+        "prompt": "Transform this customer review into an engaging social media post optimized for {{$json.platformTarget}}. The post must be authentic, concise, and compelling.\n\nCustomer Name: {{$json.customerName}}\nReview: {{$json.reviewText}}\nRating: {{$json.rating}}/5\nTarget Platform: {{$json.platformTarget}}\n\nRespond in strict JSON format:\n{\"postText\": \"...\", \"hashtags\": [...], \"callToAction\": \"...\"}"
+      },
+      "credentials": {
+        "openAiApi": "={{$env.OPENAI_API_KEY}}"
+      }
+    },
+    {
+      "name": "Google Sheets - Archive Post",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 2,
+      "position": [850, 300],
+      "parameters": {
+        "mode": "append",
+        "spreadsheetId": "={{$env.GOOGLE_SHEETS_ID}}",
+        "sheetName": "Generated Posts",
+        "columns": {
+          "customerName": "={{$json.customerName}}",
+          "originalReview": "={{$json.reviewText}}",
+          "rating": "={{$json.rating}}",
+          "platform": "={{$json.platformTarget}}",
+          "generatedPost": "={{JSON.parse($json.response).postText}}",
+          "hashtags": "={{JSON.parse($json.response).hashtags.join(' ')}}",
+          "callToAction": "={{JSON.parse($json.response).callToAction}}",
+          "timestamp": "={{new Date().toISOString()}}"
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": "={{$env.GOOGLE_SHEETS_API}}"
+      }
+    },
+    {
+      "name": "Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1100, 300],
+      "parameters": {
+        "statusCode": 200,
+        "responseBody": "={\"success\": true, \"postId\": \"{{$json.id}}\", \"platform\": \"{{$json.platformTarget}}\"}"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Receive Review": {
+      "main": [
+        [
+          {
+            "node": "Parse Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Review": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Generate Social Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Generate Social Post": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Archive Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Archive Post": {
+      "main": [
+        [
+          {
+            "node": "Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "timezone": "Europe/Paris"
+  },
+  "id": "pack-ecommerce-pro-reviews",
+  "version": 1,
+  "createdAt": "2026-02-11",
+  "description": "Reçoit les avis clients, génère des posts sociaux optimisés avec OpenAI, archive dans Google Sheets"
+}

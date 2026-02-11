@@ -1,0 +1,108 @@
+{
+  "version": "1.0",
+  "name": "Pack_Ecommerce_Pro - Reviews to Social Posts (ByteChef)",
+  "description": "Avis Clients → Posts Sociaux Automatisés",
+  "triggers": [
+    {
+      "name": "webhook_trigger",
+      "type": "webhook",
+      "title": "Webhook - Receive Review",
+      "properties": {
+        "url": "/ecommerce-pro/review",
+        "method": "POST",
+        "headers": {},
+        "queryParameters": {}
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "name": "parse_review",
+      "action": "utility.transform",
+      "title": "Parse Review Data",
+      "input": {
+        "value": "{{webhook_trigger.body}}"
+      },
+      "output": {
+        "customerName": "{{input.customerName}}",
+        "reviewText": "{{input.reviewText}}",
+        "rating": "{{input.rating}}",
+        "platformTarget": "{{input.platformTarget}}"
+      }
+    },
+    {
+      "name": "openai_generate",
+      "action": "openai.createChatCompletion",
+      "title": "OpenAI - Generate Social Post",
+      "input": {
+        "model": "gpt-4",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a professional social media copywriter. Transform customer reviews into engaging, authentic posts optimized for specific platforms."
+          },
+          {
+            "role": "user",
+            "content": "Transform this customer review into an engaging social media post optimized for {{parse_review.platformTarget}}.\n\nCustomer Name: {{parse_review.customerName}}\nReview: {{parse_review.reviewText}}\nRating: {{parse_review.rating}}/5\n\nRespond in JSON: {\"postText\": \"...\", \"hashtags\": [...], \"callToAction\": \"...\"}"
+          }
+        ],
+        "temperature": 0.7,
+        "apiKey": "{{env.OPENAI_API_KEY}}"
+      },
+      "output": "{{JSON.parse(openai_generate.content[0].text)}}"
+    },
+    {
+      "name": "sheets_archive",
+      "action": "googleSheets.appendValues",
+      "title": "Google Sheets - Archive Post",
+      "input": {
+        "spreadsheetId": "{{env.GOOGLE_SHEETS_ID}}",
+        "range": "Generated Posts!A:H",
+        "values": [
+          [
+            "{{parse_review.customerName}}",
+            "{{parse_review.reviewText}}",
+            "{{parse_review.rating}}",
+            "{{parse_review.platformTarget}}",
+            "{{openai_generate.postText}}",
+            "{{openai_generate.hashtags.join(' ')}}",
+            "{{openai_generate.callToAction}}",
+            "{{now()}}"
+          ]
+        ],
+        "credentials": "{{env.GOOGLE_SHEETS_API}}"
+      }
+    },
+    {
+      "name": "send_response",
+      "action": "utility.respondToWebhook",
+      "title": "Response",
+      "input": {
+        "statusCode": 200,
+        "body": {
+          "success": true,
+          "platform": "{{parse_review.platformTarget}}",
+          "postId": "{{sheets_archive.updates.updatedCells}}"
+        }
+      }
+    }
+  ],
+  "flow": [
+    {
+      "from": "webhook_trigger",
+      "to": "parse_review"
+    },
+    {
+      "from": "parse_review",
+      "to": "openai_generate"
+    },
+    {
+      "from": "openai_generate",
+      "to": "sheets_archive"
+    },
+    {
+      "from": "sheets_archive",
+      "to": "send_response"
+    }
+  ]
+}
