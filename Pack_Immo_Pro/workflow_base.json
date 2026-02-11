@@ -9,7 +9,8 @@
       "webhookId": "lead-webhook-immobilier",
       "parameters": {
         "path": "lead-intake",
-        "httpMethod": "POST"
+        "httpMethod": "POST",
+        "responseMode": "onReceived"
       },
       "credentials": {}
     },
@@ -24,25 +25,25 @@
           "string": [
             {
               "name": "nom",
-              "value": "={{$json.firstName}} {{$json.lastName}}"
+              "value": "={{$json.firstName || ''}} {{$json.lastName || ''}}"
             },
             {
               "name": "email",
-              "value": "={{$json.email}}"
+              "value": "={{$json.email || ''}}"
             },
             {
               "name": "telephone",
-              "value": "={{$json.phone}}"
+              "value": "={{$json.phone || ''}}"
             },
             {
               "name": "typeDeBien",
-              "value": "={{$json.propertyType}}"
+              "value": "={{$json.propertyType || 'autre'}}"
             }
           ],
           "number": [
             {
               "name": "budget",
-              "value": "={{$json.budgetMax || $json.budget}}"
+              "value": "={{Number($json.budgetMax || $json.budget || 0)}}"
             }
           ]
         }
@@ -56,7 +57,7 @@
       "parameters": {
         "model": "gpt-4",
         "temperature": 0.5,
-        "prompt": "Analyse ce lead immobilier et détermine s'il est 'Chaud' ou 'Froid'.\n\nCritères:\n- CHAUD: Budget >= 200000€ ET (type de bien = maison ou immeuble)\n- CHAUD: Budget entre 100000-200000€ ET type de bien = appartement avec équipements premium\n- FROID: Budget < 100000€\n- FROID: Type de bien = terrain sans budget élevé\n\nLead:\n- Nom: {{$json.nom}}\n- Email: {{$json.email}}\n- Téléphone: {{$json.telephone}}\n- Type de bien: {{$json.typeDeBien}}\n- Budget: {{$json.budget}}€\n\nRéponds UNIQUEMENT avec:\n{\"temperature\": \"Chaud\" ou \"Froid\", \"raison\": \"explication courte\", \"priorite\": 1-5}"
+        "prompt": "Analyse ce lead immobilier et détermine s'il est 'Chaud' ou 'Froid'.\n\nCritères:\n- CHAUD: Budget >= 200000€ ET (type de bien = maison ou immeuble)\n- CHAUD: Budget entre 100000-200000€ ET type de bien = appartement avec équipements premium\n- FROID: Budget < 100000€\n- FROID: Type de bien = terrain sans budget élevé\n\nLead:\n- Nom: {{$json.nom}}\n- Email: {{$json.email}}\n- Téléphone: {{$json.telephone}}\n- Type de bien: {{$json.typeDeBien}}\n- Budget: {{$json.budget}}€\n\nRéponds strictement au format JSON avec les clés: temperature, raison, priorite. Exemple:\n{\"temperature\": \"Chaud\", \"raison\": \"Budget élevé et bien souhaité\", \"priorite\": 5}"
       },
       "credentials": {
         "openAiApi": "={{$env.OPENAI_API_KEY}}"
@@ -111,7 +112,7 @@
       "position": [1350, 300],
       "parameters": {
         "statusCode": 200,
-        "responseBody": "={\"status\": \"Lead traité avec succès\", \"leadId\": \"{{$json.id}}\", \"temperature\": \"{{JSON.parse($json.response).temperature}}\"}"
+        "responseBody": "={\"status\": \"Lead traité avec succès\", \"temperature\": \"{{JSON.parse($json.response).temperature}}\"}"
       }
     },
     {
